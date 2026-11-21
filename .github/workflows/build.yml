@@ -1,0 +1,117 @@
+name: Build and release NanoMig
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: nanomig-release
+
+env:
+  TAG: nanomig-build-${{ github.sha }}
+
+jobs:
+  changes:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - name: Check whether this commit has already been released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          build=$(gh api graphql -F owner='{owner}' -F repo='{repo}' -f tag="$TAG" \
+            -f query='query($owner:String!, $repo:String!, $tag:String!) {
+              repository(owner:$owner, name:$repo) { release(tagName:$tag) { isDraft } }
+            }' --jq '.data.repository.release.isDraft != false')
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    env:
+      GOWIN_VERSION: '1.9.12.03'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            grc libasound2t64 libnss3 libgl1 libglu1-mesa libfontconfig1 libfreetype6 \
+            libxrender1 libxcomposite1 libxdamage1 libxrandr2 libxtst6 \
+            libxi6 libxss1 libxkbcommon-x11-0
+
+      - name: Restore Gowin download
+        id: gowin-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gowin.tar.gz
+          key: gowin-linux-x64-${{ env.GOWIN_VERSION }}
+
+      - name: Install Gowin EDA
+        env:
+          GOWIN_LICENSE_SERVER: ${{ secrets.GOWIN_LICENSE_SERVER || 'gowinlic.sipeed.com:10559' }}
+        run: |
+          archive="$RUNNER_TEMP/gowin.tar.gz"
+          mkdir -p "$RUNNER_TEMP/gowin"
+          if [[ ! -s $archive ]]; then
+            curl --fail --location --retry 3 --connect-timeout 30 --max-time 1200 \
+              --output "$archive" "https://eda.gowinsemi.cn/Gowin_V${GOWIN_VERSION}_linux.tar.gz"
+          fi
+          tar -xzf "$archive" -C "$RUNNER_TEMP/gowin"
+          gowin_bin=$(dirname "$(find "$RUNNER_TEMP/gowin" -path '*/IDE/bin/gw_sh' -type f -print -quit)")
+          test -x "$gowin_bin/gw_sh"
+          printf '[license]\nlic="%s"\n' "$GOWIN_LICENSE_SERVER" > "$gowin_bin/gwlicense.ini"
+          echo "$gowin_bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$gowin_bin/../lib" >> "$GITHUB_ENV"
+          echo 'QT_QPA_PLATFORM=offscreen' >> "$GITHUB_ENV"
+
+      - name: Cache Gowin download
+        if: steps.gowin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gowin.tar.gz
+          key: gowin-linux-x64-${{ env.GOWIN_VERSION }}
+
+      - name: Build all Gowin variants
+        working-directory: src
+        env:
+          LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libfreetype.so.6
+        run: |
+          bash -e ./build.sh all
+          # Require all seven bitstreams before publishing.
+          shopt -s nullglob
+          bitstreams=(impl/pnr/nanomig_*.fs)
+          test "${#bitstreams[@]}" -eq 7
+          for file in "${bitstreams[@]}"; do test -s "$file"; done
+
+      - name: Publish GitHub release
+        working-directory: src/impl/pnr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --target "$GITHUB_SHA" --draft \
+              --title "NanoMig ${GITHUB_SHA:0:7}" --notes "Gowin build of $GITHUB_SHA."
+          shopt -s nullglob
+          gh release upload "$TAG" nanomig_*.{fs,bin} --clobber
+          gh release edit "$TAG" --draft=false
