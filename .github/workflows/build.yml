@@ -67,6 +67,7 @@ jobs:
           key: ${{ env.GOWIN_ARCHIVE }}
 
       - name: Install Gowin EDA
+        id: setup
         run: |
           archive="$RUNNER_TEMP/gowin.tar.gz"
           mkdir -p "$RUNNER_TEMP/gowin"
@@ -88,20 +89,66 @@ jobs:
           path: ${{ runner.temp }}/gowin.tar.gz
           key: ${{ env.GOWIN_ARCHIVE }}
 
-      - name: Build all Gowin variants
-        working-directory: src
+      - name: Build nano20k
+        if: &build_target_if ${{ !cancelled() && steps.setup.outcome == 'success' }}
         env:
-          LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libfreetype.so.6
-        run: |
-          bash -e ./build.sh all
-          # Require all seven bitstreams before publishing.
-          shopt -s nullglob
-          bitstreams=(impl/pnr/nanomig_*.fs)
-          test "${#bitstreams[@]}" -eq 7
-          for file in "${bitstreams[@]}"; do test -s "$file"; done
+          BOARD: tang_nano20k
+          BUILD_ARGS: nano20k
+        run: &build_target |
+          cd src
+          read -r -a args <<< "$BUILD_ARGS"
+          LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libfreetype.so.6 bash -e ./build.sh "${args[@]}"
+          output="impl/pnr/nanomig_$BOARD"
+          test -s "$output.fs"
+          test -s "$output.bin"
+          mkdir -p ../release
+          cp "$output.fs" "$output.bin" ../release/
 
-      - name: Publish GitHub release
-        working-directory: src/impl/pnr
+      - name: Build nano20k aga
+        if: *build_target_if
+        env:
+          BOARD: tang_nano20k_aga
+          BUILD_ARGS: nano20k aga
+        run: *build_target
+
+      - name: Build nano20k lcd
+        if: *build_target_if
+        env:
+          BOARD: tang_nano20k_lcd
+          BUILD_ARGS: nano20k lcd
+        run: *build_target
+
+      - name: Build nano20k aga lcd
+        if: *build_target_if
+        env:
+          BOARD: tang_nano20k_aga_lcd
+          BUILD_ARGS: nano20k aga lcd
+        run: *build_target
+
+      - name: Build tp25k
+        if: *build_target_if
+        env:
+          BOARD: tang_primer25k
+          BUILD_ARGS: tp25k
+        run: *build_target
+
+      - name: Build tp25k aga
+        if: *build_target_if
+        env:
+          BOARD: tang_primer25k_aga
+          BUILD_ARGS: tp25k aga
+        run: *build_target
+
+      - name: Build gw5a_25
+        if: *build_target_if
+        env:
+          BOARD: mistle_gw5a_25
+          BUILD_ARGS: gw5a_25
+        run: *build_target
+
+      - name: Publish successful targets
+        if: ${{ !cancelled() && hashFiles('release/*.bin') != '' }}
+        working-directory: release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -109,6 +156,5 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --target "$GITHUB_SHA" --draft \
               --title "NanoMig ${GITHUB_SHA:0:7}" --notes "Gowin build of $GITHUB_SHA."
-          shopt -s nullglob
-          gh release upload "$TAG" nanomig_*.{fs,bin} --clobber
+          gh release upload "$TAG" nanomig_*.fs nanomig_*.bin --clobber
           gh release edit "$TAG" --draft=false
