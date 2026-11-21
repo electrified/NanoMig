@@ -97,12 +97,15 @@ jobs:
         run: &build_target |
           cd src
           read -r -a args <<< "$BUILD_ARGS"
-          LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libfreetype.so.6 bash -e ./build.sh "${args[@]}"
           output="impl/pnr/nanomig_$BOARD"
+          rm -f "$output.fs" "$output.bin"
+          LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libfreetype.so.6 bash -e ./build.sh "${args[@]}"
           test -s "$output.fs"
           test -s "$output.bin"
           mkdir -p ../release
-          cp "$output.fs" "$output.bin" ../release/
+          asset="../release/nanomig_${BOARD}${ASSET_SUFFIX:-}"
+          cp "$output.fs" "$asset.fs"
+          cp "$output.bin" "$asset.bin"
 
       - name: Build nano20k aga
         if: *build_target_if
@@ -123,6 +126,22 @@ jobs:
         env:
           BOARD: tang_nano20k_aga_lcd
           BUILD_ARGS: nano20k aga lcd
+        run: *build_target
+
+      - name: Build nano20k lcd lcd_companion
+        if: *build_target_if
+        env:
+          BOARD: tang_nano20k_lcd
+          BUILD_ARGS: nano20k lcd lcd_companion
+          ASSET_SUFFIX: _companion
+        run: *build_target
+
+      - name: Build nano20k aga lcd lcd_companion
+        if: *build_target_if
+        env:
+          BOARD: tang_nano20k_aga_lcd
+          BUILD_ARGS: nano20k aga lcd lcd_companion
+          ASSET_SUFFIX: _companion
         run: *build_target
 
       - name: Build tp25k
