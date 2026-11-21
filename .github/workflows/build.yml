@@ -41,7 +41,7 @@ jobs:
     permissions:
       contents: write
     env:
-      GOWIN_VERSION: '1.9.12.03'
+      GOWIN_ARCHIVE: Gowin_V1.9.11.03_Education_Linux.tar.gz
     defaults:
       run:
         shell: bash
@@ -64,22 +64,19 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/gowin.tar.gz
-          key: gowin-linux-x64-${{ env.GOWIN_VERSION }}
+          key: ${{ env.GOWIN_ARCHIVE }}
 
       - name: Install Gowin EDA
-        env:
-          GOWIN_LICENSE_SERVER: ${{ secrets.GOWIN_LICENSE_SERVER || 'gowinlic.sipeed.com:10559' }}
         run: |
           archive="$RUNNER_TEMP/gowin.tar.gz"
           mkdir -p "$RUNNER_TEMP/gowin"
           if [[ ! -s $archive ]]; then
             curl --fail --location --retry 3 --connect-timeout 30 --max-time 1200 \
-              --output "$archive" "https://eda.gowinsemi.cn/Gowin_V${GOWIN_VERSION}_linux.tar.gz"
+              --output "$archive" "https://eda.gowinsemi.cn/$GOWIN_ARCHIVE"
           fi
           tar -xzf "$archive" -C "$RUNNER_TEMP/gowin"
           gowin_bin=$(dirname "$(find "$RUNNER_TEMP/gowin" -path '*/IDE/bin/gw_sh' -type f -print -quit)")
           test -x "$gowin_bin/gw_sh"
-          printf '[license]\nlic="%s"\n' "$GOWIN_LICENSE_SERVER" > "$gowin_bin/gwlicense.ini"
           echo "$gowin_bin" >> "$GITHUB_PATH"
           echo "LD_LIBRARY_PATH=$gowin_bin/../lib" >> "$GITHUB_ENV"
           echo 'QT_QPA_PLATFORM=offscreen' >> "$GITHUB_ENV"
@@ -89,7 +86,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/gowin.tar.gz
-          key: gowin-linux-x64-${{ env.GOWIN_VERSION }}
+          key: ${{ env.GOWIN_ARCHIVE }}
 
       - name: Build all Gowin variants
         working-directory: src
