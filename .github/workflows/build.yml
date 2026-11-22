@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-26.04
     outputs:
-      artifact_ids: ${{ steps.bitstreams.outputs.ids }}
+      artifact_id: ${{ steps.bitstreams.outputs.artifact-id }}
     env:
       GOWIN_URL: https://github.com/electrified/fpga-toolchains/releases/download/1.9.12.03-Linux/Gowin_V1.9.12.03_linux.tar.gz
       GOWIN_SHA256: 4cf60a8ffd0337da23191a911c69b1e0ca3457a6070c15c9dc245005212ecb51
@@ -143,25 +143,26 @@ jobs:
           BUILD_ARGS: gw5a_25
         uses: ./.github/actions/build-target
 
-      - name: Collect bitstream IDs for the release
+      - name: Upload bitstream archive
         id: bitstreams
-        if: ${{ !cancelled() && github.event_name == 'release' }}
-        run: |
-          if [[ -s "$RUNNER_TEMP/bitstream-ids" ]]; then
-            echo "ids=$(paste -sd, "$RUNNER_TEMP/bitstream-ids")" >> "$GITHUB_OUTPUT"
-          fi
+        if: ${{ !cancelled() && hashFiles('artifacts/*.bin') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nanomig-bitstreams
+          path: artifacts/
+          overwrite: true
+          if-no-files-found: error
 
   attach-to-release:
     needs: build
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.outputs.artifact_ids != '' }}
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.outputs.artifact_id != '' }}
     runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_ids }}
-          merge-multiple: true
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: artifacts
 
       - name: Attach bitstreams to the published release
