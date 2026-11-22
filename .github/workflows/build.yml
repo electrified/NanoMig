@@ -24,7 +24,7 @@ jobs:
     outputs:
       artifact_id: ${{ steps.bitstreams.outputs.artifact-id }}
     env:
-      GOWIN_URL: https://archive.org/download/gowin-v-1.9.12.03-linux.tar/Gowin_V1.9.12.03_linux.tar.gz
+      GOWIN_URL: https://github.com/electrified/fpga-toolchains/releases/download/1.9.12.03-Linux/Gowin_V1.9.12.03_linux.tar.gz
       GOWIN_SHA256: 4cf60a8ffd0337da23191a911c69b1e0ca3457a6070c15c9dc245005212ecb51
     defaults:
       run:
