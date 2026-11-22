@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - '!src/**/*.md'
       - '.github/workflows/build.yml'
+      - '.github/actions/build-target/**'
   release:
     types: [published]
 
@@ -22,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-26.04
     outputs:
-      artifact_id: ${{ steps.bitstreams.outputs.artifact-id }}
+      artifact_ids: ${{ steps.bitstreams.outputs.ids }}
     env:
       GOWIN_URL: https://github.com/electrified/fpga-toolchains/releases/download/1.9.12.03-Linux/Gowin_V1.9.12.03_linux.tar.gz
       GOWIN_SHA256: 4cf60a8ffd0337da23191a911c69b1e0ca3457a6070c15c9dc245005212ecb51
@@ -82,39 +83,28 @@ jobs:
         env:
           BOARD: tang_nano20k
           BUILD_ARGS: nano20k
-        run: &build_target |
-          cd src
-          read -r -a args <<< "$BUILD_ARGS"
-          output="impl/pnr/nanomig_$BOARD"
-          rm -f "$output.fs" "$output.bin"
-          LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libfreetype.so.6 bash -e ./build.sh "${args[@]}"
-          test -s "$output.fs"
-          test -s "$output.bin"
-          mkdir -p ../artifacts
-          asset="../artifacts/nanomig_${BOARD}${ASSET_SUFFIX:-}"
-          cp "$output.fs" "$asset.fs"
-          cp "$output.bin" "$asset.bin"
+        uses: ./.github/actions/build-target
 
       - name: Build nano20k aga
         if: *build_target_if
         env:
           BOARD: tang_nano20k_aga
           BUILD_ARGS: nano20k aga
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build nano20k lcd
         if: *build_target_if
         env:
           BOARD: tang_nano20k_lcd
           BUILD_ARGS: nano20k lcd
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build nano20k aga lcd
         if: *build_target_if
         env:
           BOARD: tang_nano20k_aga_lcd
           BUILD_ARGS: nano20k aga lcd
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build nano20k lcd lcd_companion
         if: *build_target_if
@@ -122,7 +112,7 @@ jobs:
           BOARD: tang_nano20k_lcd
           BUILD_ARGS: nano20k lcd lcd_companion
           ASSET_SUFFIX: _companion
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build nano20k aga lcd lcd_companion
         if: *build_target_if
@@ -130,48 +120,48 @@ jobs:
           BOARD: tang_nano20k_aga_lcd
           BUILD_ARGS: nano20k aga lcd lcd_companion
           ASSET_SUFFIX: _companion
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build tp25k
         if: *build_target_if
         env:
           BOARD: tang_primer25k
           BUILD_ARGS: tp25k
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build tp25k aga
         if: *build_target_if
         env:
           BOARD: tang_primer25k_aga
           BUILD_ARGS: tp25k aga
-        run: *build_target
+        uses: ./.github/actions/build-target
 
       - name: Build gw5a_25
         if: *build_target_if
         env:
           BOARD: mistle_gw5a_25
           BUILD_ARGS: gw5a_25
-        run: *build_target
+        uses: ./.github/actions/build-target
 
-      - name: Upload successful bitstreams
+      - name: Collect bitstream IDs for the release
         id: bitstreams
-        if: ${{ !cancelled() && hashFiles('artifacts/*.bin') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: nanomig-bitstreams
-          path: artifacts/
-          if-no-files-found: error
+        if: ${{ !cancelled() && github.event_name == 'release' }}
+        run: |
+          if [[ -s "$RUNNER_TEMP/bitstream-ids" ]]; then
+            echo "ids=$(paste -sd, "$RUNNER_TEMP/bitstream-ids")" >> "$GITHUB_OUTPUT"
+          fi
 
   attach-to-release:
     needs: build
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.outputs.artifact_id != '' }}
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.outputs.artifact_ids != '' }}
     runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          name: nanomig-bitstreams
+          artifact-ids: ${{ needs.build.outputs.artifact_ids }}
+          merge-multiple: true
           path: artifacts
 
       - name: Attach bitstreams to the published release

@@ -1,0 +1,44 @@
+name: Build and upload NanoMig target
+description: Build one board variant and upload its two bitstream formats individually.
+runs:
+  using: composite
+  steps:
+    - name: Build bitstreams
+      shell: bash
+      run: |
+        cd src
+        read -r -a args <<< "$BUILD_ARGS"
+        output="impl/pnr/nanomig_$BOARD"
+        rm -f "$output.fs" "$output.bin"
+        LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libfreetype.so.6 bash -e ./build.sh "${args[@]}"
+        test -s "$output.fs"
+        test -s "$output.bin"
+        mkdir -p ../artifacts
+        asset="../artifacts/nanomig_${BOARD}${ASSET_SUFFIX:-}"
+        cp "$output.fs" "$asset.fs"
+        cp "$output.bin" "$asset.bin"
+        echo "asset=artifacts/nanomig_${BOARD}${ASSET_SUFFIX:-}" >> "$GITHUB_OUTPUT"
+      id: build
+
+    - uses: actions/upload-artifact@v7
+      id: fs
+      with:
+        path: ${{ steps.build.outputs.asset }}.fs
+        archive: false
+        overwrite: true
+        if-no-files-found: error
+
+    - uses: actions/upload-artifact@v7
+      id: bin
+      with:
+        path: ${{ steps.build.outputs.asset }}.bin
+        archive: false
+        overwrite: true
+        if-no-files-found: error
+
+    - name: Record uploaded pair
+      shell: bash
+      env:
+        FS_ID: ${{ steps.fs.outputs.artifact-id }}
+        BIN_ID: ${{ steps.bin.outputs.artifact-id }}
+      run: printf '%s\n' "$FS_ID" "$BIN_ID" >> "$RUNNER_TEMP/bitstream-ids"
